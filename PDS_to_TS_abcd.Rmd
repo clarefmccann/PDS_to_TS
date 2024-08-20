@@ -258,6 +258,8 @@ raw_PDS_m <- raw_PDS %>%
 
 ```{r PDS to TS}
 
+## see https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2727719/
+
 # Label variables 
 # peta: 'growth in height' (pds_ht2_y)
 # petb: 'growth of body hair' (pds_bdyhair_y)
