@@ -1,0 +1,418 @@
+---
+title: "exploring abcd pds"
+author: "cfm"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    highlight: tango
+    theme: united
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+---
+
+### Setting up markdown {.tabset}
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = TRUE,
+	warning = TRUE
+)
+
+options(scipen=999)
+```
+
+### loading required packages
+
+```{r Load Required Packages, message=FALSE, warning=FALSE, include=FALSE}
+
+library(pacman)
+
+pacman::p_load(dplyr, ggplot2, tidyr, lubridate, psych, nlme, data.table, install = TRUE)
+
+```
+
+# Setting root path 
+
+```{r root path}
+
+root = "/Users/clare/Dropbox (University of Oregon)/mine/projects/abcd_pub_smri_timing/"
+
+```
+
+# loading in data 
+
+```{r loading in data}
+
+pds_youth <- read.csv(paste0(root, "data/ph_y_pds.csv"))
+pds_parent <- read.csv(paste0(root, "data/ph_p_pds.csv"))
+
+demo <- read.csv(paste0(root, "data/abcd_p_demo.csv")) %>%
+    rename("id" = "src_subject_id",
+           "wave" = "eventname",
+           "grade" = "demo_ed_v2",
+           "gender" = "demo_gender_id_v2",
+           "white" = "demo_prnt_race_a_v2___10",
+           "black" = "demo_prnt_race_a_v2___11",
+           "aina" = "demo_prnt_race_a_v2___12",
+           "an" = "demo_prnt_race_a_v2___13",
+           "nh" = "demo_prnt_race_a_v2___14",
+           "guam" = "demo_prnt_race_a_v2___15",
+           "samoan" = "demo_prnt_race_a_v2___16",
+           "pin" = "demo_prnt_race_a_v2___17",
+           "indian" = "demo_prnt_race_a_v2___18",
+           "chinese" = "demo_prnt_race_a_v2___19",
+           "filipino" = "demo_prnt_race_a_v2___20",
+           "japanese" = "demo_prnt_race_a_v2___21",
+           "korean" = "demo_prnt_race_a_v2___22",
+           "vietnamese" = "demo_prnt_race_a_v2___23",
+           "asian_other" = "demo_prnt_race_a_v2___24",
+           "other" = "demo_prnt_race_a_v2___25",
+           "refuse_race" = "demo_prnt_race_a_v2___77",
+           "dont_know_race" = "demo_prnt_race_a_v2___99",
+           "ethn" = "demo_ethn_v2",
+           "ethn_specified" = "demo_ethn2_v2",
+           "income" = "demo_prnt_income_v2_l") %>%
+  select(id, wave, white, black, aina, an, nh, guam, samoan, pin, indian, chinese, filipino, japanese, vietnamese, asian_other, other, refuse_race, dont_know_race, ethn, ethn_specified, income)
+
+tracking <- read.csv(paste0(root, "data/abcd_y_lt.csv"))
+
+```
+
+
+```{r cleaning up}
+
+pds_parent <- pds_parent %>%
+  select(src_subject_id, eventname, pubertal_sex_p, pds_p_ss_male_category_2, pds_p_ss_female_category_2) %>%
+  rename("id" = "src_subject_id",
+         "wave" = "eventname",
+         "sex" = "pubertal_sex_p",
+         "puberty_status_male_abcd" = "pds_p_ss_male_category_2",
+         "puberty_status_female_abcd" = "pds_p_ss_female_category_2")
+
+pds_parent <- pds_parent %>%
+    pivot_longer(cols = starts_with("puberty_status_"),
+               names_to = "puberty_status_type",
+               values_to = "puberty_status_parent_abcd") %>%
+  filter(!is.na(puberty_status_parent_abcd)) %>%
+  select(-puberty_status_type) %>%
+  group_by(id) %>%
+  fill(sex, .direction = "downup") %>%
+  ungroup()
+
+pds_youth <- pds_youth %>%
+  select(src_subject_id, eventname, pds_sex_y, pds_y_ss_male_cat_2, pds_y_ss_female_category_2) %>%
+  rename("id" = "src_subject_id",
+         "wave" = "eventname",
+         "sex" = "pds_sex_y",
+         "puberty_status_male_abcd" = "pds_y_ss_male_cat_2",
+         "puberty_status_female_abcd" = "pds_y_ss_female_category_2")
+
+pds_youth <- pds_youth %>%
+    pivot_longer(cols = starts_with("puberty_status_"),
+               names_to = "puberty_status_type",
+               values_to = "puberty_status_youth_abcd") %>%
+  filter(!is.na(puberty_status_youth_abcd)) %>%
+  select(-puberty_status_type) %>%
+  group_by(id) %>%
+  fill(sex, .direction = "downup") %>%
+  ungroup()
+
+# ids_with_na_sex_parent <- pds_parent %>%
+#   filter(is.na(sex)) %>%
+#   distinct(id)
+#
+# ids_with_na_sex_youth <- pds_youth %>%
+#   filter(is.na(sex)) %>%
+#   distinct(id)
+#
+# common_ids <- intersect(ids_with_na_sex_parent, ids_with_na_sex_youth)
+
+puberty <- left_join(pds_parent, pds_youth, by = c("id", "wave")) %>%
+  mutate(sex = coalesce(sex.x, sex.y)) %>%
+  select(-sex.x, -sex.y)
+
+age <- tracking %>%
+  select(src_subject_id, eventname, interview_age) %>%
+  rename("id" = "src_subject_id",
+         "wave" = "eventname",
+         "age" = "interview_age")
+
+puberty <- left_join(puberty, age, by = c("id", "wave"))
+
+rm(pds_parent, pds_youth)
+
+```
+
+
+```{r parent + youth}
+
+## general distribution of summary scores
+
+# ggplot(puberty, aes(x = age, y = puberty_status_youth_abcd, group = as.factor(id), color = as.factor(sex))) +
+#   geom_line(aes(group = id), alpha = 0.5) + 
+#   geom_point(aes(group = id)) +
+#   geom_smooth(method = "loess", se = FALSE, size = 1.5) +
+#   labs(title = "Relationship between Age and Pubertal Status (Youth)",
+#        x = "Age",
+#        y = "Pubertal Status (Youth)") +
+#   theme_minimal() +
+#   scale_color_manual(values = c("green", "pink"))
+# 
+# 
+# ggplot(puberty, aes(x = age, y = pubertal_status_parent_abcd, group = id, color = sex)) +
+#   geom_line(aes(group = id), alpha = 0.5) + 
+#   geom_point(aes(group = id)) +
+#   geom_smooth(method = "loess", se = FALSE, size = 1.5) +
+#   labs(title = "Relationship between Age and Pubertal Status (Parent)",
+#        x = "Age",
+#        y = "Pubertal Status (Parent)") +
+#   theme_minimal() +
+#   scale_color_manual(values = c("green", "pink"))
+
+## correlation btw parent and youth report 
+
+# correlations_parentyouth <- puberty %>%
+#   group_by(wave) %>%
+#   summarize(correlation = cor(puberty_status_parent_abcd, puberty_status_youth_abcd, use = "complete.obs"))
+# 
+# print(correlations_parentyouth)
+# 
+# rm(correlations_parentyouth)
+
+
+```
+
+```{r cleaning for PDS to TS}
+
+## loading in raw PDS youth csv
+
+raw_PDS <- read.csv(paste0(root, "data/ph_y_pds.csv")) %>%
+  rename("id" = "src_subject_id",
+         "wave" = "eventname",
+         "sex" = "pds_sex_y") %>%
+  group_by(id) %>%
+  fill(sex, .direction = "downup") %>%
+  ungroup()
+
+raw_PDS_f <- raw_PDS %>%
+  filter(sex == 2) %>%
+  select(id, wave, pds_ht2_y, pds_bdyhair_y, pds_skin2_y, pds_f4_2_y, pds_f5_y) %>%
+  rename("peta" = "pds_ht2_y",
+         "petb" = "pds_bdyhair_y",
+         "petc" = "pds_skin2_y",
+         "petd" = "pds_f4_2_y",
+         "fpete" = "pds_f5_y")
+
+raw_PDS_m <- raw_PDS %>%
+  filter(sex == 1) %>%
+  select(id, wave, pds_ht2_y, pds_bdyhair_y, pds_skin2_y, pds_m4_y, pds_m5_y) %>%
+  rename("peta" = "pds_ht2_y",
+         "petb" = "pds_bdyhair_y",
+         "petc" = "pds_skin2_y",
+         "petd" = "pds_m4_y",
+         "mpete" = "pds_m5_y")
+# 
+# ## seeing how many are putting 999 (don't know) or 777 (refuse to answer) at each wave 
+# 
+# long_raw_PDS_f <- raw_PDS_f %>%
+#   pivot_longer(cols = c(-id, -wave), names_to = "variable", values_to = "value")
+# 
+# long_raw_PDS_m <- raw_PDS_m %>%
+#   pivot_longer(cols = c(-id, -wave), names_to = "variable", values_to = "value")
+# 
+# dk_rta_PDS_f <- long_raw_PDS_f %>% 
+#   filter(value %in% c(999, 777)) %>%
+#   group_by(wave, variable, value) %>%
+#   summarise(count = n(), .groups = 'drop')
+# 
+# dk_rta_PDS_m <- long_raw_PDS_m %>% 
+#   filter(value %in% c(999, 777)) %>%
+#   group_by(wave, variable, value) %>%
+#   summarise(count = n(), .groups = 'drop')
+# 
+# ## saving output
+# # write.csv(dk_rta_PDS_f, file = paste0(root, "dk_rta_PDS_f.csv"))
+# # 
+# # write.csv(dk_rta_PDS_m, file = paste0(root, "dk_rta_PDS_m.csv"))
+# 
+# rm(dk_rta_PDS_f, dk_rta_PDS_m, long_raw_PDS_f, long_raw_PDS_m)
+# 
+# ## removing rows with 999 or 777
+# 
+# raw_PDS_f <- raw_PDS_f %>% 
+#   filter(if_all(everything(), ~ !(. %in% c(999, 777)) & !is.na(.)))
+# 
+# raw_PDS_m <- raw_PDS_m %>% 
+#   filter(if_all(everything(), ~ !(. %in% c(999, 777)) & !is.na(.)))
+
+```
+
+
+```{r PDS to TS}
+
+# Label variables 
+# peta: 'growth in height' (pds_ht2_y)
+# petb: 'growth of body hair' (pds_bdyhair_y)
+# petc: 'noticed skin changes' (pds_skin2_y)
+# petd: 'breasts begun to grow / deepening of voice' (pds_f4_2_y / pds_m4_y)
+# mpete: 'male grow hair on face' (pds_m5_y)
+# fpete: 'female begun to menstruate' (pds_f5_y)
+
+# recode variables for females
+raw_PDS_f <- raw_PDS_f %>%
+  mutate(petbf = ifelse(petb == 1, 1,
+               ifelse(petb == 2, 2,
+                     ifelse(petb == 3, 4,
+                           ifelse(petb == 4, 5, NA))))) %>%
+  mutate(petcf = ifelse(petc == 1, 1,
+               ifelse(petc == 2, 2,
+                     ifelse(petc == 3, 4,
+                           ifelse(petc == 4, 5, NA)))))
+
+raw_PDS_f$adrenf <- rowMeans(cbind(raw_PDS_f$petbf, raw_PDS_f$petcf), na.rm = TRUE)
+raw_PDS_f$adrenf2 <- raw_PDS_f$adrenf
+raw_PDS_f$adrenf2[raw_PDS_f$petb == 1 & raw_PDS_f$adrenf == 1.5] <- 1
+raw_PDS_f$adrenf2[raw_PDS_f$petb == 2 & raw_PDS_f$adrenf == 1.5] <- 2
+raw_PDS_f$adrenf2[raw_PDS_f$adrenf == 2.5] <- 3
+raw_PDS_f$adrenf2[raw_PDS_f$adrenf == 3.5] <- 4
+raw_PDS_f$adrenf2[raw_PDS_f$adrenf == 4.5] <- 5
+raw_PDS_f$adrenf2[raw_PDS_f$adrenf == 5.5] <- 5
+
+raw_PDS_f <- raw_PDS_f %>%
+  mutate(petaf = ifelse(peta == 1, 1,
+               ifelse(peta == 2, 2,
+                     ifelse(peta == 3, 3,
+                           ifelse(peta == 4, 5, NA))))) %>%
+  mutate(petdf = ifelse(petd == 1, 1,
+               ifelse(petd == 2, 3,
+                     ifelse(petd == 3, 4,
+                           ifelse(petd == 4, 5, NA))))) %>%
+  mutate(petef = ifelse(fpete == 1, 1,
+               ifelse(fpete == 4, 5, NA)))
+
+raw_PDS_f$gonadf <- rowMeans(cbind(raw_PDS_f$petaf, raw_PDS_f$petdf), na.rm = TRUE)
+raw_PDS_f$gonadf2 <- raw_PDS_f$gonadf
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 1 & raw_PDS_f$petef == 1] <- 1
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 1.5 & raw_PDS_f$petef == 1] <- 1
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 2 & raw_PDS_f$petef == 1] <- 2
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 2.5 & raw_PDS_f$petef == 1] <- 2
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 3 & raw_PDS_f$petef == 1] <- 3
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 3.5 & raw_PDS_f$petef == 1] <- 3
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 4 & raw_PDS_f$petef == 1] <- 3
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 4.5 & raw_PDS_f$petef == 1] <- 4
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 5 & raw_PDS_f$petef == 1] <- 4
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 1 & raw_PDS_f$petef == 5] <- 2
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 1.5 & raw_PDS_f$petef == 5] <- 3
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 2 & raw_PDS_f$petef == 5] <- 4
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 2.5 & raw_PDS_f$petef == 5] <- 4
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 3 & raw_PDS_f$petef == 5] <- 4
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 3.5 & raw_PDS_f$petef == 5] <- 5
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 4 & raw_PDS_f$petef == 5] <- 5
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 4.5 & raw_PDS_f$petef == 5] <- 5
+raw_PDS_f$gonadf2[raw_PDS_f$gonadf == 5 & raw_PDS_f$petef == 5] <- 5
+
+raw_PDS_f$PDSS <- rowMeans(cbind(raw_PDS_f$gonadf2, raw_PDS_f$adrenf2), na.rm = TRUE)
+
+# recode variables for males
+raw_PDS_m <- raw_PDS_m %>%
+  mutate(petbm = ifelse(petb == 1, 1,
+               ifelse(petb == 2, 2,
+                     ifelse(petb == 3, 4,
+                           ifelse(petb == 4, 5, NA))))) %>%
+  mutate(petcm = ifelse(petc == 1, 1,
+               ifelse(petc == 2, 2,
+                     ifelse(petc == 3, 3,
+                           ifelse(petc == 4, 4, NA)))))
+
+raw_PDS_m$adrenm <- rowMeans(cbind(raw_PDS_m$petbm, raw_PDS_m$petcm), na.rm = TRUE)
+raw_PDS_m$adrenm2 <- raw_PDS_m$adrenm
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 1] <- 1
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 1.5 & raw_PDS_m$petcm == 1] <- 1
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 1.5 & raw_PDS_m$petcm == 2] <- 2
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 2.5 & raw_PDS_m$petbm != 4] <- 2
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 2.5 & raw_PDS_m$petbm == 4] <- 3
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 3.5] <- 4
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 4.5] <- 5
+raw_PDS_m$adrenm2[raw_PDS_m$adrenm == 5.5] <- 5
+
+raw_PDS_m <- raw_PDS_m %>%
+  mutate(petam = ifelse(peta == 1, 1,
+               ifelse(peta == 2, 3,
+                     ifelse(peta == 3, 4,
+                           ifelse(peta == 4, 5, NA))))) %>%
+  mutate(petdm = ifelse(petd == 1, 1,
+               ifelse(petd == 2, 2,
+                     ifelse(petd == 3, 3,
+                           ifelse(petd == 4, 5, NA)))))
+
+raw_PDS_m$gonadm <- rowMeans(cbind(raw_PDS_m$petam, raw_PDS_m$petdm), na.rm = TRUE)
+raw_PDS_m$gonadm2 <- raw_PDS_m$gonadm
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 1 & raw_PDS_m$mpete == 1] <- 1
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 1 & raw_PDS_m$mpete > 1] <- 2
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 1.5 & raw_PDS_m$mpete == 1] <- 1
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 1.5 & raw_PDS_m$mpete > 1] <- 2
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2 & raw_PDS_m$mpete == 1 & raw_PDS_m$petd == 1] <- 1
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2 & raw_PDS_m$mpete == 1 & raw_PDS_m$petd > 1] <- 2
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2 & raw_PDS_m$mpete > 1] <- 3
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2.5 & raw_PDS_m$mpete == 1] <- 2
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2.5 & raw_PDS_m$mpete > 1] <- 3
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 3] <- 3
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 3.5 & raw_PDS_m$mpete == 1] <- 4
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 3.5 & raw_PDS_m$mpete > 2] <- 5
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 4 & raw_PDS_m$mpete == 1] <- 4
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 4 & raw_PDS_m$mpete == 2] <- 4
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 4 & raw_PDS_m$mpete > 2] <- 5
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm > 4] <- 5
+
+## creating scored dataframe
+
+scored_youth_PDS_f <- raw_PDS_f
+scored_youth_PDS_m <- raw_PDS_m
+
+scored_youth_PDS_f$PDSS <- rowMeans(cbind(scored_youth_PDS_f$gonadf2, scored_youth_PDS_f$adrenf2), na.rm = TRUE)
+
+scored_youth_PDS_m$PDSS <- rowMeans(cbind(scored_youth_PDS_m$gonadm2, scored_youth_PDS_m$adrenm2), na.rm = TRUE)
+
+rm(raw_PDS_f, raw_PDS_m)
+
+```
+
+```{r checking diff btw calc and abcd PDSS}
+
+puberty_f <- puberty %>%
+  filter(sex == 2)
+
+puberty_m <- puberty %>%
+  filter(sex == 1)
+
+scored_youth_PDS_f <- scored_youth_PDS_f %>%
+  select(id, wave, adrenf, adrenf2, gonadf, gonadf2, PDSS)
+scored_youth_PDS_m <- scored_youth_PDS_m %>%
+  select(id, wave, adrenm, adrenm2, gonadm, gonadm2, PDSS)
+
+puberty_f <- left_join(puberty_f, scored_youth_PDS_f, by = c("id", "wave"))
+puberty_m <- left_join(puberty_m, scored_youth_PDS_m, by = c("id", "wave"))
+
+correlations_f <- puberty_f %>%
+  group_by(wave) %>%
+  summarize(correlation = cor(puberty_status_youth_abcd, PDSS, use = "complete.obs"))
+
+print(correlations_f)
+
+correlations_m <- puberty_m %>%
+  group_by(wave) %>%
+  summarize(correlation = cor(puberty_status_youth_abcd, PDSS, use = "complete.obs"))
+
+print(correlations_m)
+
+rm(correlations_f, correlations_m)
+
+```
