@@ -367,6 +367,7 @@ raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2 & raw_PDS_m$mpete > 1] <- 3
 raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2.5 & raw_PDS_m$mpete == 1] <- 2
 raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 2.5 & raw_PDS_m$mpete > 1] <- 3
 raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 3] <- 3
+raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 3.5 & raw_PDS_m$mpete == 2] <- 4
 raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 3.5 & raw_PDS_m$mpete == 1] <- 4
 raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 3.5 & raw_PDS_m$mpete > 2] <- 5
 raw_PDS_m$gonadm2[raw_PDS_m$gonadm == 4 & raw_PDS_m$mpete == 1] <- 4
