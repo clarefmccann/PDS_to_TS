@@ -43,7 +43,7 @@ pacman::p_load(dplyr, ggplot2, tidyr, lubridate, psych, nlme, data.table, instal
 
 ```{r root path}
 
-root = "/Users/clare/Dropbox (University of Oregon)/mine/projects/abcd_pub_smri_timing/"
+root = ".../projects/abcd_pub_smri_timing/"
 
 ```
 
